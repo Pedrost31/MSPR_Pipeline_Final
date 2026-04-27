@@ -64,6 +64,7 @@ services:
       context: .
       dockerfile: Dockerfile.airflow
     container_name: healthai-airflow
+    user: "0:0"
     restart: unless-stopped
     depends_on:
       postgres:
