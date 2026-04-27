@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 import pandas as pd
@@ -5,6 +6,8 @@ import pandas as pd
 from .utils import get_logger
 
 logger = get_logger(__name__)
+
+_BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 
 
 def analyze_csv(path: Path, zero_threshold: float):
@@ -48,10 +51,14 @@ def analyze_csv(path: Path, zero_threshold: float):
 
 
 def run_csv_quality_check(
-    input_dir: str = "data/processed",
-    output_file: str = "logs/csv_quality_report.csv",
+    input_dir: str = None,
+    output_file: str = None,
     zero_threshold: float = 70.0,
 ) -> dict:
+    if input_dir is None:
+        input_dir = os.path.join(_BASE_DIR, "data", "processed")
+    if output_file is None:
+        output_file = os.path.join(_BASE_DIR, "logs", "csv_quality_report.csv")
     source_dir = Path(input_dir)
     output_path = Path(output_file)
     output_path.parent.mkdir(parents=True, exist_ok=True)

@@ -17,4 +17,4 @@ def run_pipeline():
         run_csv_quality_check()
         logger.info("Pipeline ETL termine avec succes")
     else:
-        logger.error("Pipeline arretee: extraction vide ou en echec")
+        raise RuntimeError("Pipeline echoue : extraction vide ou en echec")

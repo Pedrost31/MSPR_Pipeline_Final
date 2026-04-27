@@ -201,26 +201,20 @@ def _seed_consommation(cur) -> None:
 
 # ── main ─────────────────────────────────────────────────────────────────────
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Seed PostgreSQL HealthAI Coach")
-    parser.add_argument(
-        "--truncate", action="store_true",
-        help="Vide les tables avant l'insertion (TRUNCATE CASCADE)"
-    )
-    args = parser.parse_args()
-
+def seed_data(truncate: bool = True) -> None:
+    """Appelable depuis le DAG Airflow ou en CLI."""
     print("Connexion PostgreSQL...")
     try:
         conn = psycopg2.connect(**DB_CONFIG)
     except psycopg2.OperationalError as e:
         print(f"Connexion impossible : {e}", file=sys.stderr)
-        sys.exit(1)
+        raise
 
     conn.autocommit = False
     cur = conn.cursor()
 
     try:
-        if args.truncate:
+        if truncate:
             print("Truncate tables (CASCADE)...")
             cur.execute("""
                 TRUNCATE
@@ -259,6 +253,16 @@ def main() -> None:
     finally:
         cur.close()
         conn.close()
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Seed PostgreSQL HealthAI Coach")
+    parser.add_argument(
+        "--truncate", action="store_true",
+        help="Vide les tables avant l'insertion (TRUNCATE CASCADE)"
+    )
+    args = parser.parse_args()
+    seed_data(truncate=args.truncate)
 
 
 if __name__ == "__main__":
