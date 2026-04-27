@@ -8,8 +8,8 @@ services:
     container_name: healthai-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_DB:       healthai
-      POSTGRES_USER:     healthai
+      POSTGRES_DB: healthai
+      POSTGRES_USER: healthai
       POSTGRES_PASSWORD: healthai
     ports:
       - "5432:5432"
@@ -24,7 +24,7 @@ services:
       timeout: 5s
       retries: 10
 
-  # ── Pipeline ETL (génère les CSV) ────────────────────────
+  # ── Pipeline ETL (manuel ou debug) ───────────────────────
   pipeline:
     build: .
     container_name: healthai-pipeline
@@ -35,7 +35,7 @@ services:
       PYTHONPATH: /app
     command: python scripts/run_pipeline.py
 
-  # ── Seed (CSV → PostgreSQL) ──────────────────────────────
+  # ── Seed (manuel ou debug) ───────────────────────────────
   seed:
     build: .
     container_name: healthai-seed
@@ -45,13 +45,39 @@ services:
     volumes:
       - ./data:/app/data
     environment:
-      PYTHONPATH:        /app
-      POSTGRES_HOST:     postgres
-      POSTGRES_PORT:     "5432"
-      POSTGRES_DB:       healthai
-      POSTGRES_USER:     healthai
+      PYTHONPATH: /app
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: healthai
+      POSTGRES_USER: healthai
       POSTGRES_PASSWORD: healthai
     command: python database/seed.py --truncate
+
+  # ── Apache Airflow ──────────────────────────────────────
+  airflow:
+    image: apache/airflow:2.9.1
+    container_name: healthai-airflow
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://healthai:healthai@postgres:5432/healthai
+      AIRFLOW__CORE__FERNET_KEY: "myfernetkey"
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - ./airflow/logs:/opt/airflow/logs
+      - ./:/app
+    ports:
+      - "8080:8080"
+    command: >
+      bash -c "
+      airflow db init &&
+      airflow users create --username admin --password admin --firstname admin --lastname admin --role Admin --email admin@admin.com &&
+      airflow scheduler & airflow webserver
+      "
 
 volumes:
   postgres_data:
