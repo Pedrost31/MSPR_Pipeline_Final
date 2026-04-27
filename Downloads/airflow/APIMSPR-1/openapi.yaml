@@ -1,0 +1,1632 @@
+openapi: 3.0.3
+info:
+  title: HealthAI API
+  description: |
+    API REST de la plateforme HealthAI — suivi santé, activité physique et alimentation.
+
+    ## Authentification
+    L'API utilise des **JWT stockés dans un cookie httpOnly** (`token`).
+    Pour les clients ne supportant pas les cookies, le token peut être transmis
+    via l'en-tête `Authorization: Bearer <token>`.
+
+    ## Rôles
+    | Rôle  | Description |
+    |-------|-------------|
+    | `user`  | Lecture de ses propres données uniquement |
+    | `admin` | Accès complet en lecture et écriture sur toutes les données |
+
+    ## Flux de démarrage
+    1. `POST /auth/register` — créer un compte
+    2. `POST /auth/login` — obtenir un token JWT
+    3. Utiliser le token pour tous les appels suivants
+  version: "1.0.0"
+  contact:
+    name: HealthAI Team
+
+servers:
+  - url: http://localhost:3000
+    description: Serveur de développement local
+
+tags:
+  - name: Authentification
+    description: Connexion, inscription, gestion de session
+  - name: Comptes
+    description: Gestion des comptes API (admin uniquement pour CRUD)
+  - name: Profils santé
+    description: Profils utilisateurs importés par le pipeline ETL
+  - name: Aliments
+    description: Référentiel nutritionnel
+  - name: Activité
+    description: Séances d'activité physique quotidienne
+  - name: Consommation
+    description: Journaux alimentaires
+  - name: Analytiques
+    description: Vues analytiques agrégées (lecture seule)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# COMPONENTS
+# ─────────────────────────────────────────────────────────────────────────────
+components:
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: token
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    # ── Auth ──────────────────────────────────────────────────────────────────
+    RegisterRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+          example: utilisateur@exemple.com
+        password:
+          type: string
+          minLength: 6
+          example: motdepasse123
+
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+
+    UserPublic:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 1
+        email:
+          type: string
+          format: email
+          example: admin@gmail.com
+        role:
+          type: string
+          enum: [user, admin]
+          example: admin
+        created_at:
+          type: string
+          format: date-time
+
+    UserMe:
+      allOf:
+        - $ref: '#/components/schemas/UserPublic'
+        - type: object
+          properties:
+            healthId:
+              type: integer
+              nullable: true
+              description: user_id du profil santé lié à ce compte
+              example: 42
+
+    # ── Profil santé ──────────────────────────────────────────────────────────
+    Utilisateur:
+      type: object
+      properties:
+        user_id:
+          type: integer
+          example: 42
+        age:
+          type: integer
+          example: 32
+        gender:
+          type: string
+          enum: [Male, Female, Other]
+          example: Female
+        experience_level:
+          type: integer
+          description: Niveau d'expérience sportive (1=débutant, 2=intermédiaire, 3=avancé)
+          minimum: 1
+          maximum: 3
+          example: 2
+        weight_kg:
+          type: number
+          format: float
+          example: 68.5
+        height_m:
+          type: number
+          format: float
+          example: 1.68
+        bmi_calculated:
+          type: number
+          format: float
+          example: 24.27
+        api_user_id:
+          type: integer
+          nullable: true
+          description: ID du compte API associé
+          example: 3
+        account_email:
+          type: string
+          nullable: true
+          description: Email du compte associé (lecture seule, issu du JOIN)
+          example: alice@exemple.com
+        created_at:
+          type: string
+          format: date-time
+
+    UtilisateurCreate:
+      type: object
+      required: [user_id, age, gender, experience_level, weight_kg, height_m]
+      properties:
+        user_id:
+          type: integer
+        age:
+          type: integer
+          minimum: 10
+          maximum: 120
+        gender:
+          type: string
+          enum: [Male, Female, Other]
+        experience_level:
+          type: integer
+          minimum: 1
+          maximum: 3
+        weight_kg:
+          type: number
+          format: float
+        height_m:
+          type: number
+          format: float
+        bmi_calculated:
+          type: number
+          format: float
+        api_user_id:
+          type: integer
+          nullable: true
+
+    # ── Aliment ───────────────────────────────────────────────────────────────
+    Aliment:
+      type: object
+      properties:
+        nutrition_id:
+          type: integer
+          example: 1
+        food_item:
+          type: string
+          example: Poulet grillé
+        category:
+          type: string
+          example: Viandes
+        calories_kcal:
+          type: number
+          format: float
+          example: 165.0
+        protein_g:
+          type: number
+          format: float
+          example: 31.0
+        carbohydrates_g:
+          type: number
+          format: float
+          example: 0.0
+        fat_g:
+          type: number
+          format: float
+          example: 3.6
+        fiber_g:
+          type: number
+          format: float
+          nullable: true
+        sugars_g:
+          type: number
+          format: float
+          nullable: true
+        sodium_mg:
+          type: number
+          format: float
+          nullable: true
+        cholesterol_mg:
+          type: number
+          format: float
+          nullable: true
+        meal_type:
+          type: string
+          enum: [BREAKFAST, LUNCH, DINNER, SNACK]
+          nullable: true
+        water_intake_ml:
+          type: number
+          format: float
+          nullable: true
+
+    AlimentCreate:
+      type: object
+      required: [food_item, category, calories_kcal, protein_g, carbohydrates_g, fat_g]
+      properties:
+        food_item:
+          type: string
+        category:
+          type: string
+        calories_kcal:
+          type: number
+          format: float
+        protein_g:
+          type: number
+          format: float
+        carbohydrates_g:
+          type: number
+          format: float
+        fat_g:
+          type: number
+          format: float
+        fiber_g:
+          type: number
+          format: float
+        sugars_g:
+          type: number
+          format: float
+        sodium_mg:
+          type: number
+          format: float
+        cholesterol_mg:
+          type: number
+          format: float
+        meal_type:
+          type: string
+          enum: [BREAKFAST, LUNCH, DINNER, SNACK]
+        water_intake_ml:
+          type: number
+          format: float
+
+    # ── Activité ──────────────────────────────────────────────────────────────
+    Activite:
+      type: object
+      properties:
+        id_activity:
+          type: integer
+          example: 101
+        user_id:
+          type: integer
+          example: 42
+        date:
+          type: string
+          format: date
+          example: "2024-03-15"
+        workout_type:
+          type: string
+          example: Running
+        steps:
+          type: integer
+          example: 8500
+        total_distance:
+          type: number
+          format: float
+          example: 6.2
+        session_duration_hours:
+          type: number
+          format: float
+          example: 1.25
+        calories_burned:
+          type: number
+          format: float
+          example: 420.0
+        min_tres_actif:
+          type: number
+          format: float
+          nullable: true
+        min_modere:
+          type: number
+          format: float
+          nullable: true
+        min_leger:
+          type: number
+          format: float
+          nullable: true
+        min_sedentaire:
+          type: number
+          format: float
+          nullable: true
+        pct_actif:
+          type: number
+          format: float
+          description: Pourcentage de temps actif
+          example: 68.5
+
+    ActiviteCreate:
+      type: object
+      required: [user_id, date, workout_type]
+      properties:
+        user_id:
+          type: integer
+          description: Forcé à l'healthId de l'utilisateur connecté si rôle user
+        date:
+          type: string
+          format: date
+        workout_type:
+          type: string
+        steps:
+          type: integer
+        total_distance:
+          type: number
+          format: float
+        session_duration_hours:
+          type: number
+          format: float
+        calories_burned:
+          type: number
+          format: float
+        very_active_distance:
+          type: number
+          format: float
+        very_active_minutes:
+          type: number
+          format: float
+        moderately_active_distance:
+          type: number
+          format: float
+        fairly_active_minutes:
+          type: number
+          format: float
+        light_active_distance:
+          type: number
+          format: float
+        lightly_active_minutes:
+          type: number
+          format: float
+        sedentary_minutes:
+          type: number
+          format: float
+
+    # ── Consommation ──────────────────────────────────────────────────────────
+    Consommation:
+      type: object
+      properties:
+        id_consumption:
+          type: integer
+          example: 201
+        user_id:
+          type: integer
+          example: 42
+        food_item:
+          type: string
+          example: Poulet grillé
+        category:
+          type: string
+          example: Viandes
+        date_consommation:
+          type: string
+          format: date
+          example: "2024-03-15"
+        repas_type:
+          type: string
+          enum: [BREAKFAST, LUNCH, DINNER, SNACK]
+          example: LUNCH
+        quantite_grammes:
+          type: number
+          format: float
+          example: 200.0
+        calories_kcal:
+          type: number
+          format: float
+          example: 330.0
+        protein_g:
+          type: number
+          format: float
+        carbohydrates_g:
+          type: number
+          format: float
+        fat_g:
+          type: number
+          format: float
+
+    ConsommationCreate:
+      type: object
+      required: [nutrition_id, date_consommation, repas_type, quantite_grammes]
+      properties:
+        nutrition_id:
+          type: integer
+        date_consommation:
+          type: string
+          format: date
+        repas_type:
+          type: string
+          enum: [BREAKFAST, LUNCH, DINNER, SNACK]
+        quantite_grammes:
+          type: number
+          format: float
+        user_id:
+          type: integer
+          description: Ignoré pour rôle user (forcé à l'healthId)
+
+    # ── Analytics ─────────────────────────────────────────────────────────────
+    KpiRow:
+      type: object
+      properties:
+        user_id:
+          type: integer
+        age:
+          type: integer
+        gender:
+          type: string
+        bmi_calculated:
+          type: number
+          format: float
+        categorie_imc:
+          type: string
+          example: Normal
+        nb_seances:
+          type: integer
+        moy_calories_brulees:
+          type: number
+          format: float
+        moy_duree_seance_h:
+          type: number
+          format: float
+        total_steps:
+          type: integer
+        jours_avec_activite:
+          type: integer
+        moy_calories_consommees:
+          type: number
+          format: float
+        moy_proteines_g:
+          type: number
+          format: float
+        moy_glucides_g:
+          type: number
+          format: float
+        moy_lipides_g:
+          type: number
+          format: float
+
+    BilanRow:
+      type: object
+      properties:
+        user_id:
+          type: integer
+        date:
+          type: string
+          format: date
+        calories_depensees:
+          type: number
+          format: float
+        calories_consommees:
+          type: number
+          format: float
+        bilan:
+          type: number
+          format: float
+          description: calories_depensees - calories_consommees
+        statut:
+          type: string
+          enum: [Deficit, Equilibre, Excedent]
+
+    # ── Erreurs ───────────────────────────────────────────────────────────────
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+          example: Accès refusé
+
+  responses:
+    Unauthorized:
+      description: Token manquant ou invalide
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: Token manquant ou invalide
+    Forbidden:
+      description: Droits insuffisants
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: Accès réservé aux administrateurs
+    NotFound:
+      description: Ressource introuvable
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Conflict:
+      description: Conflit — ressource déjà existante
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: Email déjà utilisé
+
+security:
+  - cookieAuth: []
+  - bearerAuth: []
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PATHS
+# ─────────────────────────────────────────────────────────────────────────────
+paths:
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # AUTHENTIFICATION
+  # ════════════════════════════════════════════════════════════════════════════
+
+  /auth/register:
+    post:
+      tags: [Authentification]
+      summary: Créer un compte utilisateur
+      description: Crée un nouveau compte avec le rôle `user` par défaut. Aucune authentification requise.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '201':
+          description: Compte créé avec succès
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Compte créé avec succès
+                  user:
+                    $ref: '#/components/schemas/UserPublic'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /auth/login:
+    post:
+      tags: [Authentification]
+      summary: Se connecter
+      description: |
+        Vérifie les identifiants, crée une session en base et retourne un JWT
+        dans un cookie httpOnly `token` (durée 24h).
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Connexion réussie — cookie `token` défini
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+                example: token=eyJhbGc...; HttpOnly; Path=/; Max-Age=86400
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  role:
+                    type: string
+                    enum: [user, admin]
+                  email:
+                    type: string
+                  id:
+                    type: integer
+        '401':
+          description: Identifiants incorrects
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /auth/logout:
+    post:
+      tags: [Authentification]
+      summary: Se déconnecter
+      description: Révoque la session en base et efface le cookie `token`.
+      responses:
+        '200':
+          description: Déconnexion réussie
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Déconnecté
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /auth/me:
+    get:
+      tags: [Authentification]
+      summary: Profil de l'utilisateur connecté
+      description: Retourne les informations du compte JWT actif, avec l'`healthId` lié si disponible.
+      responses:
+        '200':
+          description: Informations du compte courant
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserMe'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /auth/stats:
+    get:
+      tags: [Comptes]
+      summary: Statistiques globales (admin)
+      description: Retourne le nombre de lignes dans chaque table principale.
+      responses:
+        '200':
+          description: Compteurs par table
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  api_users:
+                    type: integer
+                  utilisateur:
+                    type: integer
+                  nutrition:
+                    type: integer
+                  consommation_alimentaire:
+                    type: integer
+                  activite_journaliere:
+                    type: integer
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /auth/users:
+    get:
+      tags: [Comptes]
+      summary: Lister tous les comptes (admin)
+      responses:
+        '200':
+          description: Liste des comptes
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/UserPublic'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+    post:
+      tags: [Comptes]
+      summary: Créer un compte avec rôle (admin)
+      description: Permet à un administrateur de créer un compte en spécifiant le rôle.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/RegisterRequest'
+                - type: object
+                  properties:
+                    role:
+                      type: string
+                      enum: [user, admin]
+                      default: user
+      responses:
+        '201':
+          description: Compte créé
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  user:
+                    $ref: '#/components/schemas/UserPublic'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /auth/users/{id}:
+    put:
+      tags: [Comptes]
+      summary: Modifier l'email d'un compte (admin)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email:
+                  type: string
+                  format: email
+      responses:
+        '200':
+          description: Compte mis à jour
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  user:
+                    $ref: '#/components/schemas/UserPublic'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags: [Comptes]
+      summary: Supprimer un compte (admin)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Compte supprimé
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  user:
+                    type: object
+                    properties:
+                      id:
+                        type: integer
+                      email:
+                        type: string
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /auth/users/{id}/role:
+    patch:
+      tags: [Comptes]
+      summary: Changer le rôle d'un compte (admin)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [role]
+              properties:
+                role:
+                  type: string
+                  enum: [user, admin]
+      responses:
+        '200':
+          description: Rôle mis à jour
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  user:
+                    $ref: '#/components/schemas/UserPublic'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # PROFILS SANTÉ
+  # ════════════════════════════════════════════════════════════════════════════
+
+  /utilisateurs:
+    get:
+      tags: [Profils santé]
+      summary: Lister les profils
+      description: |
+        - **Admin** : retourne tous les profils avec email du compte associé.
+        - **User** : retourne uniquement son propre profil.
+      responses:
+        '200':
+          description: Liste des profils
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Utilisateur'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+    post:
+      tags: [Profils santé]
+      summary: Créer un profil santé (admin)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UtilisateurCreate'
+      responses:
+        '201':
+          description: Profil créé
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Utilisateur'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /utilisateurs/unlinked:
+    get:
+      tags: [Profils santé]
+      summary: Profils sans compte associé (admin)
+      responses:
+        '200':
+          description: Profils non liés
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Utilisateur'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /utilisateurs/{id}:
+    put:
+      tags: [Profils santé]
+      summary: Modifier un profil santé (admin)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: user_id du profil
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                age:
+                  type: integer
+                gender:
+                  type: string
+                  enum: [Male, Female, Other]
+                experience_level:
+                  type: integer
+                  minimum: 1
+                  maximum: 3
+                weight_kg:
+                  type: number
+                  format: float
+                height_m:
+                  type: number
+                  format: float
+                bmi_calculated:
+                  type: number
+                  format: float
+      responses:
+        '200':
+          description: Profil mis à jour
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Utilisateur'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags: [Profils santé]
+      summary: Supprimer un profil santé (admin)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Profil supprimé
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /utilisateurs/{id}/link:
+    put:
+      tags: [Profils santé]
+      summary: Associer un compte à un profil (admin)
+      description: Lie un `api_user_id` à un profil santé existant pour lui donner accès à ses données.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: user_id du profil à lier
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [api_user_id]
+              properties:
+                api_user_id:
+                  type: integer
+                  description: ID du compte API à associer
+      responses:
+        '200':
+          description: Profil lié au compte
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  utilisateur:
+                    $ref: '#/components/schemas/Utilisateur'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags: [Profils santé]
+      summary: Dissocier un compte d'un profil (admin)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Lien supprimé
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  utilisateur:
+                    $ref: '#/components/schemas/Utilisateur'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # ALIMENTS
+  # ════════════════════════════════════════════════════════════════════════════
+
+  /aliment:
+    get:
+      tags: [Aliments]
+      summary: Lister tous les aliments
+      responses:
+        '200':
+          description: Liste complète du référentiel nutritionnel
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Aliment'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+    post:
+      tags: [Aliments]
+      summary: Ajouter un aliment (admin)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AlimentCreate'
+      responses:
+        '201':
+          description: Aliment ajouté
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Aliment'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /aliment/{food_item}:
+    get:
+      tags: [Aliments]
+      summary: Rechercher un aliment par nom exact
+      parameters:
+        - name: food_item
+          in: path
+          required: true
+          schema:
+            type: string
+          example: Poulet grillé
+      responses:
+        '200':
+          description: Aliment trouvé
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Aliment'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    put:
+      tags: [Aliments]
+      summary: Modifier un aliment (admin)
+      parameters:
+        - name: food_item
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AlimentCreate'
+      responses:
+        '200':
+          description: Aliment mis à jour
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Aliment'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags: [Aliments]
+      summary: Supprimer un aliment (admin)
+      parameters:
+        - name: food_item
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Aliment supprimé
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # ACTIVITÉ QUOTIDIENNE
+  # ════════════════════════════════════════════════════════════════════════════
+
+  /activite_quotidienne:
+    get:
+      tags: [Activité]
+      summary: Lister les séances d'activité
+      description: |
+        - **Admin** : toutes les séances, enrichies par la vue `v_intensite_seance`.
+        - **User** : uniquement ses propres séances (filtré par `healthId`).
+      responses:
+        '200':
+          description: Liste des séances
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Activite'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+    post:
+      tags: [Activité]
+      summary: Enregistrer une séance (admin)
+      description: |
+        Crée une ligne dans `activite_journaliere` et 4 lignes dans `activite_intensite`
+        (VERY_ACTIVE, MODERATE, LIGHT, SEDENTARY) dans une transaction unique.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActiviteCreate'
+      responses:
+        '201':
+          description: Séance créée avec ses intensités
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  activity:
+                    $ref: '#/components/schemas/Activite'
+                  intensites:
+                    type: array
+                    items:
+                      type: object
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /activite_quotidienne/{user_id}/{date}:
+    get:
+      tags: [Activité]
+      summary: Séance d'un utilisateur pour une date donnée
+      parameters:
+        - name: user_id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: date
+          in: path
+          required: true
+          schema:
+            type: string
+            format: date
+          example: "2024-03-15"
+      responses:
+        '200':
+          description: Séance trouvée (null si absente)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Activite'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /activite_quotidienne/{id_activity}:
+    put:
+      tags: [Activité]
+      summary: Modifier une séance (admin)
+      description: Met à jour `activite_journaliere` et les 4 lignes `activite_intensite` dans une transaction.
+      parameters:
+        - name: id_activity
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActiviteCreate'
+      responses:
+        '200':
+          description: Séance mise à jour
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Activite'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags: [Activité]
+      summary: Supprimer une séance (admin)
+      description: Supprime la séance et ses intensités en cascade.
+      parameters:
+        - name: id_activity
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Séance supprimée
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # CONSOMMATION ALIMENTAIRE
+  # ════════════════════════════════════════════════════════════════════════════
+
+  /consommation:
+    get:
+      tags: [Consommation]
+      summary: Lister les enregistrements de consommation
+      description: |
+        - **Admin** : toutes les entrées avec données nutritionnelles jointes.
+        - **User** : uniquement ses propres entrées (filtré par `healthId`).
+      responses:
+        '200':
+          description: Liste des consommations
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Consommation'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+    post:
+      tags: [Consommation]
+      summary: Enregistrer une consommation (admin)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConsommationCreate'
+      responses:
+        '201':
+          description: Consommation enregistrée
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Consommation'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /consommation/{id_consumption}:
+    get:
+      tags: [Consommation]
+      summary: Détail d'une consommation
+      parameters:
+        - name: id_consumption
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Consommation trouvée
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Consommation'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    put:
+      tags: [Consommation]
+      summary: Modifier une consommation (admin)
+      parameters:
+        - name: id_consumption
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConsommationCreate'
+      responses:
+        '200':
+          description: Consommation mise à jour
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Consommation'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags: [Consommation]
+      summary: Supprimer une consommation (admin)
+      parameters:
+        - name: id_consumption
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Consommation supprimée
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # ANALYTIQUES
+  # ════════════════════════════════════════════════════════════════════════════
+
+  /analytics/kpi:
+    get:
+      tags: [Analytiques]
+      summary: Indicateurs clés par utilisateur (v_kpi_dashboard)
+      description: |
+        Agrège les métriques clés par profil. Lecture seule.
+        - **Admin** : tous les profils.
+        - **User** : son propre profil uniquement.
+      responses:
+        '200':
+          description: KPIs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/KpiRow'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /analytics/profil:
+    get:
+      tags: [Analytiques]
+      summary: Profils de santé enrichis (v_profil_utilisateur)
+      description: Données biométriques et statistiques d'activité par utilisateur.
+      responses:
+        '200':
+          description: Profils
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    user_id:
+                      type: integer
+                    age:
+                      type: integer
+                    gender:
+                      type: string
+                    experience_level:
+                      type: integer
+                    weight_kg:
+                      type: number
+                    height_m:
+                      type: number
+                    bmi_calculated:
+                      type: number
+                    categorie_imc:
+                      type: string
+                    nb_seances:
+                      type: integer
+                    moy_calories_brulees:
+                      type: number
+                    moy_duree_seance_h:
+                      type: number
+                    total_steps:
+                      type: integer
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /analytics/resume:
+    get:
+      tags: [Analytiques]
+      summary: Résumé journalier activité + nutrition (v_resume_journalier)
+      responses:
+        '200':
+          description: Résumés journaliers
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    user_id:
+                      type: integer
+                    date:
+                      type: string
+                      format: date
+                    workout_type:
+                      type: string
+                    steps:
+                      type: integer
+                    calories_burned:
+                      type: number
+                    session_duration_hours:
+                      type: number
+                    calories_consommees:
+                      type: number
+                    proteines_g:
+                      type: number
+                    glucides_g:
+                      type: number
+                    lipides_g:
+                      type: number
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /analytics/bilan:
+    get:
+      tags: [Analytiques]
+      summary: Bilan calorique déficit/excédent (v_bilan_calorique)
+      responses:
+        '200':
+          description: Bilans caloriques par jour et par utilisateur
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/BilanRow'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /analytics/apport:
+    get:
+      tags: [Analytiques]
+      summary: Détail apport nutritionnel par repas (v_apport_nutritionnel)
+      responses:
+        '200':
+          description: Apports nutritionnels détaillés
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    user_id:
+                      type: integer
+                    date:
+                      type: string
+                      format: date
+                    repas_type:
+                      type: string
+                    food_item:
+                      type: string
+                    category:
+                      type: string
+                    quantite_grammes:
+                      type: number
+                    calories_total:
+                      type: number
+                    proteines_g:
+                      type: number
+                    glucides_g:
+                      type: number
+                    lipides_g:
+                      type: number
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /analytics/intensite:
+    get:
+      tags: [Analytiques]
+      summary: Intensité des séances d'activité (v_intensite_seance)
+      responses:
+        '200':
+          description: Breakdown d'intensité par séance
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id_activity:
+                      type: integer
+                    user_id:
+                      type: integer
+                    date:
+                      type: string
+                      format: date
+                    workout_type:
+                      type: string
+                    min_tres_actif:
+                      type: number
+                    min_modere:
+                      type: number
+                    min_leger:
+                      type: number
+                    min_sedentaire:
+                      type: number
+                    pct_actif:
+                      type: number
+        '401':
+          $ref: '#/components/responses/Unauthorized'

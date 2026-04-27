@@ -1,0 +1,30 @@
+# ── Secrets ─────────────────────────────────────────────
+.env
+
+# ── Python ──────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyd
+*.pyo
+
+# ── Environnements virtuels ──────────────────────────────
+.venv/
+venv/
+env/
+
+# ── Données générées (sorties du pipeline ETL) ───────────
+data/processed/
+
+# ── Logs runtime ────────────────────────────────────────
+logs/
+airflow/logs/*
+!airflow/logs/.gitkeep
+
+# ── Docker ──────────────────────────────────────────────
+postgres_data/
+
+# ── IDE / OS ─────────────────────────────────────────────
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

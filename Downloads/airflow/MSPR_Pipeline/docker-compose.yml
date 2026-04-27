@@ -1,0 +1,97 @@
+version: "3.9"
+
+# Charger les variables depuis .env
+# Copier .env.example vers .env et adapter avant de lancer
+
+services:
+
+  # ── Base de données ──────────────────────────────────────
+  postgres:
+    image: postgres:15-alpine
+    container_name: healthai-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-healthai}
+      POSTGRES_USER: ${POSTGRES_USER:-healthai}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-healthai}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/init.sql:/docker-entrypoint-initdb.d/01_init.sql:ro
+      - ./database/api_schema.sql:/docker-entrypoint-initdb.d/02_api_schema.sql:ro
+      - ./database/03_seed_admin.sql:/docker-entrypoint-initdb.d/03_seed_admin.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-healthai} -d ${POSTGRES_DB:-healthai}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ── Pipeline ETL (lancement manuel uniquement) ───────────
+  pipeline:
+    build: .
+    container_name: healthai-pipeline
+    profiles: ["manual"]
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    environment:
+      PYTHONPATH: /app
+    command: python scripts/run_pipeline.py
+
+  # ── Seed BDD (lancement manuel uniquement) ───────────────
+  seed:
+    build: .
+    container_name: healthai-seed
+    profiles: ["manual"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./data:/app/data
+    environment:
+      PYTHONPATH: /app
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: ${POSTGRES_DB:-healthai}
+      POSTGRES_USER: ${POSTGRES_USER:-healthai}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-healthai}
+    command: python database/seed.py --truncate
+
+  # ── Apache Airflow ───────────────────────────────────────
+  airflow:
+    build:
+      context: .
+      dockerfile: Dockerfile.airflow
+    container_name: healthai-airflow
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER:-healthai}:${POSTGRES_PASSWORD:-healthai}@postgres:5432/${POSTGRES_DB:-healthai}
+      AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY}
+      AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW_FERNET_KEY}
+      PYTHONPATH: /app
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: ${POSTGRES_DB:-healthai}
+      POSTGRES_USER: ${POSTGRES_USER:-healthai}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-healthai}
+      AIRFLOW_ADMIN_USER: ${AIRFLOW_ADMIN_USER:-admin}
+      AIRFLOW_ADMIN_PASSWORD: ${AIRFLOW_ADMIN_PASSWORD:-admin}
+      AIRFLOW_ADMIN_EMAIL: ${AIRFLOW_ADMIN_EMAIL:-admin@admin.com}
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - ./airflow/logs:/opt/airflow/logs
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./:/app
+    ports:
+      - "8080:8080"
+    command: bash /app/scripts/airflow-entrypoint.sh
+
+volumes:
+  postgres_data:
