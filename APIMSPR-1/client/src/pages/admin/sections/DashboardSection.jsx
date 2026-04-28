@@ -2,14 +2,12 @@ import { useEffect, useState } from 'react'
 import { api } from '../../../api'
 import { useToast } from '../../../context/ToastContext'
 import {
-  IconNutrition, IconRun, IconScale, IconBmi,
-  IconLink, IconCalendar, IconProtein, IconGrain,
+  IconNutrition, IconRun, IconScale, IconBmi, IconCalendar,
 } from '../../../components/Icons'
 
 import {
   PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer,
   BarChart, Bar, XAxis, YAxis, CartesianGrid,
-  AreaChart, Area,
   RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis,
 } from 'recharts'
 
@@ -26,28 +24,26 @@ const C = {
 }
 
 const CARDS = [
-  { key: 'api_users',                label: 'Utilisateurs actifs',      cls: 'blue',   icon: '👤' },
-  { key: 'utilisateur',              label: 'Profils santé',             cls: 'green',  icon: '🫀' },
-  { key: 'nutrition',                label: 'Aliments référencés',       cls: '',       icon: '🥗' },
-  { key: 'consommation_alimentaire', label: 'Entrées nutritionnelles',   cls: 'amber',  icon: '📋' },
-  { key: 'activite_journaliere',     label: 'Sessions enregistrées',     cls: 'rose',   icon: '🏋️' },
+  { key: 'api_users',                label: 'Utilisateurs actifs',    cls: 'blue',  icon: '👤' },
+  { key: 'utilisateur',              label: 'Profils santé',           cls: 'green', icon: '🫀' },
+  { key: 'nutrition',                label: 'Aliments référencés',     cls: '',      icon: '🥗' },
+  { key: 'consommation_alimentaire', label: 'Entrées nutritionnelles', cls: 'amber', icon: '📋' },
+  { key: 'activite_journaliere',     label: 'Sessions enregistrées',   cls: 'rose',  icon: '🏋️' },
 ]
 
 const IMC_COLORS    = [C.danger, C.warning, C.success, C.blue, C.purple]
 const GENDER_COLORS = [C.blue, C.pink, C.purple]
 
-const avg  = arr => arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0
-const sum  = arr => arr.reduce((a, b) => a + b, 0)
-const fmt  = (n, d = 1) => (isNaN(n) || n === null) ? '—' : Number(n).toFixed(d)
+const avg   = arr => arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0
+const sum   = arr => arr.reduce((a, b) => a + b, 0)
+const fmt   = (n, d = 1) => (isNaN(n) || n === null) ? '—' : Number(n).toFixed(d)
 const maxOf = arr => Math.max(...arr, 1)
 
-function InsightCard({ icon: Icon, label, value, detail, color, gradient }) {
+function InsightCard({ icon: Icon, label, value, detail, color }) {
   return (
-    <div className="insight-card" style={{ background: gradient || 'var(--surface)' }}>
+    <div className="insight-card">
       <div className="insight-header">
-        <span className="insight-icon" style={{ color }}>
-          <Icon size={18} />
-        </span>
+        <span className="insight-icon" style={{ color }}><Icon size={18} /></span>
         <span className="insight-label">{label}</span>
       </div>
       <div className="insight-value" style={{ color }}>{value}</div>
@@ -57,8 +53,10 @@ function InsightCard({ icon: Icon, label, value, detail, color, gradient }) {
 }
 
 export default function DashboardSection() {
-  const [stats, setStats] = useState({})
-  const [kpi,   setKpi]   = useState([])
+  const [stats,        setStats]        = useState({})
+  const [kpi,          setKpi]          = useState([])
+  const [userFilter,   setUserFilter]   = useState('all')
+  const [genderFilter, setGenderFilter] = useState('all')
   const toast = useToast()
 
   useEffect(() => {
@@ -75,49 +73,48 @@ export default function DashboardSection() {
     )
   }
 
-  /* ── Distributions ─────────────────────────────────────────── */
+  /* ── Distributions ──────────────────────────────────────── */
+  const allGenders  = [...new Set(kpi.map(d => d.gender).filter(Boolean))]
+  const kpiFiltered = genderFilter === 'all' ? kpi : kpi.filter(d => d.gender === genderFilter)
+
   const imcMap    = {}
   const genderMap = {}
-  kpi.forEach(d => {
-    imcMap[d.categorie_imc]  = (imcMap[d.categorie_imc]  || 0) + 1
-    genderMap[d.gender]      = (genderMap[d.gender]       || 0) + 1
-  })
+  kpi.forEach(d => { genderMap[d.gender] = (genderMap[d.gender] || 0) + 1 })
+  kpiFiltered.forEach(d => { imcMap[d.categorie_imc] = (imcMap[d.categorie_imc] || 0) + 1 })
   const imcData    = Object.entries(imcMap).map(([k, v]) => ({ name: k, value: v }))
   const genderData = Object.entries(genderMap).map(([k, v]) => ({ name: k, value: v }))
 
-  /* ── Séries numériques ─────────────────────────────────────── */
-  const nbSeances   = kpi.map(d => Number(d.nb_seances)              || 0)
-  const totalSteps  = kpi.map(d => Number(d.total_steps)             || 0)
-  const durees      = kpi.map(d => Number(d.moy_duree_seance_h)      || 0)
-  const calBrulees  = kpi.map(d => Number(d.moy_calories_brulees)    || 0)
-  const joursActifs = kpi.map(d => Number(d.jours_avec_activite)     || 0)
-  const bmis        = kpi.map(d => Number(d.bmi_calculated)          || 0).filter(b => b > 0)
-  const proteines   = kpi.map(d => Number(d.moy_proteines_g)         || 0)
-  const glucides    = kpi.map(d => Number(d.moy_glucides_g)          || 0)
-  const lipides     = kpi.map(d => Number(d.moy_lipides_g)           || 0)
+  /* ── Séries numériques (globales) ───────────────────────── */
+  const nbSeances   = kpi.map(d => Number(d.nb_seances)           || 0)
+  const totalSteps  = kpi.map(d => Number(d.total_steps)          || 0)
+  const durees      = kpi.map(d => Number(d.moy_duree_seance_h)   || 0)
+  const calBrulees  = kpi.map(d => Number(d.moy_calories_brulees) || 0)
+  const joursActifs = kpi.map(d => Number(d.jours_avec_activite)  || 0)
+  const bmis        = kpi.map(d => Number(d.bmi_calculated)       || 0).filter(b => b > 0)
 
-  /* ── Agrégats ──────────────────────────────────────────────── */
+  /* ── Séries filtrées par genre ──────────────────────────── */
+  const nbSeancesF   = kpiFiltered.map(d => Number(d.nb_seances)           || 0)
+  const totalStepsF  = kpiFiltered.map(d => Number(d.total_steps)          || 0)
+  const dureesF      = kpiFiltered.map(d => Number(d.moy_duree_seance_h)   || 0)
+  const calBruleesF  = kpiFiltered.map(d => Number(d.moy_calories_brulees) || 0)
+  const joursActifsF = kpiFiltered.map(d => Number(d.jours_avec_activite)  || 0)
+
+  /* ── Agrégats ───────────────────────────────────────────── */
   const totalSeances = sum(nbSeances)
   const totalPas     = sum(totalSteps)
   const avgBMI       = avg(bmis)
   const avgCalBrul   = avg(calBrulees)
   const avgJours     = avg(joursActifs)
 
-  /* ── Cohérence ─────────────────────────────────────────────── */
-  const inactifs       = kpi.filter(d => Number(d.nb_seances) === 0).length
-  const sansConso      = kpi.filter(d => !Number(d.moy_calories_consommees)).length
-  const enDeficit      = kpi.filter(d => Number(d.moy_calories_consommees) > 0 && Number(d.moy_calories_brulees) > Number(d.moy_calories_consommees)).length
-  const enExcedent     = kpi.filter(d => Number(d.moy_calories_consommees) > 0 && Number(d.moy_calories_consommees) > Number(d.moy_calories_brulees)).length
-  const couverture     = Math.round((1 - sansConso / kpi.length) * 100)
-  const tauxActivite   = Math.round((1 - inactifs  / kpi.length) * 100)
-  const imcNormal      = imcMap['Normal'] || 0
-  const comptesOrphans = Math.max(0, (stats.api_users || 0) - (stats.utilisateur || 0))
+  /* ── Cohérence ──────────────────────────────────────────── */
+  const inactifs     = kpi.filter(d => Number(d.nb_seances) === 0).length
+  const sansConso    = kpi.filter(d => !Number(d.moy_calories_consommees)).length
+  const couverture   = Math.round((1 - sansConso / kpi.length) * 100)
+  const tauxActivite = Math.round((1 - inactifs  / kpi.length) * 100)
+  const imcNormal    = imcMap['Normal'] || 0
 
-  /* ── Données graphiques ────────────────────────────────────── */
-  const seanceData = kpi.map(d => ({ user: `U${d.user_id}`, seances: Number(d.nb_seances) || 0 }))
-  const dureeData  = kpi.map(d => ({ user: `U${d.user_id}`, duree:   Number(d.moy_duree_seance_h) || 0 }))
-  const stepsData  = kpi.map(d => ({ user: `U${d.user_id}`, steps:   Number(d.total_steps) || 0 }))
-  const joursData  = kpi.map(d => ({ user: `U${d.user_id}`, jours:   Number(d.jours_avec_activite) || 0 }))
+  /* ── Données graphiques ─────────────────────────────────── */
+  const allUserIds = kpi.map(d => `U${d.user_id}`)
 
   const bilanData = kpi.map(d => ({
     user:       `U${d.user_id}`,
@@ -132,19 +129,40 @@ export default function DashboardSection() {
     lipides:   Number(d.moy_lipides_g)   || 0,
   }))
 
+  const bilanFiltered  = userFilter === 'all' ? bilanData  : bilanData.filter(d => d.user === userFilter)
+  const macrosFiltered = userFilter === 'all' ? macrosData : macrosData.filter(d => d.user === userFilter)
+
   const radarData = [
-    { metric: 'Séances',      valeur: Math.round(avg(nbSeances)   / maxOf(nbSeances)   * 100) },
-    { metric: 'Pas',          valeur: Math.round(avg(totalSteps)  / maxOf(totalSteps)  * 100) },
-    { metric: 'Durée',        valeur: Math.round(avg(durees)      / maxOf(durees)      * 100) },
-    { metric: 'Calories',     valeur: Math.round(avg(calBrulees)  / maxOf(calBrulees)  * 100) },
-    { metric: 'Jours actifs', valeur: Math.round(avg(joursActifs) / maxOf(joursActifs) * 100) },
+    { metric: 'Séances',  valeur: Math.round(avg(nbSeancesF)   / maxOf(nbSeances)   * 100) },
+    { metric: 'Pas',      valeur: Math.round(avg(totalStepsF)  / maxOf(totalSteps)  * 100) },
+    { metric: 'Durée',    valeur: Math.round(avg(dureesF)      / maxOf(durees)      * 100) },
+    { metric: 'Calories', valeur: Math.round(avg(calBruleesF)  / maxOf(calBrulees)  * 100) },
+    { metric: 'Jours',    valeur: Math.round(avg(joursActifsF) / maxOf(joursActifs) * 100) },
   ]
+
+  const filterSelect = (value, onChange, opts, placeholder) => (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+      <select
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        style={{ padding: '6px 14px', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: 13, color: '#334155', background: '#f8fafc', cursor: 'pointer' }}
+      >
+        <option value="all">{placeholder}</option>
+        {opts}
+      </select>
+      {value !== 'all' && (
+        <button onClick={() => onChange('all')} style={{ fontSize: 12, color: C.primary, background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}>
+          Réinitialiser
+        </button>
+      )}
+    </div>
+  )
 
   return (
     <>
       <div className="page-title">Tableau de bord</div>
 
-      {/* ─── KPI PRIMAIRES ────────────────────────────────────── */}
+      {/* ── KPI PRIMAIRES ─────────────────────────────────── */}
       <div className="kpi-grid-5">
         {CARDS.map(c => (
           <div key={c.key} className={`stat-card kpi-primary ${c.cls}`}>
@@ -154,7 +172,7 @@ export default function DashboardSection() {
         ))}
       </div>
 
-      {/* ─── KPI SECONDAIRES ──────────────────────────────────── */}
+      {/* ── KPI SECONDAIRES ───────────────────────────────── */}
       <div className="kpi-grid-4">
         <div className="stat-card kpi-secondary" style={{ borderTop: `3px solid ${C.purple}` }}>
           <div className="lbl">IMC moyen</div>
@@ -178,31 +196,24 @@ export default function DashboardSection() {
         </div>
       </div>
 
-      {/* ─── BILAN GLOBAL ─────────────────────────────────────── */}
+      {/* ── BILAN GLOBAL ──────────────────────────────────── */}
       <div className="section-title">
         <IconBmi size={16} /> Bilan global du projet
       </div>
-      <div className="insights-grid">
+      <div className="insights-grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
         <InsightCard
           icon={IconNutrition}
           label="Couverture nutritionnelle"
           value={`${couverture}%`}
-          detail={`${kpi.length - sansConso}/${kpi.length} profils avec données nutritionnelles`}
+          detail={`${kpi.length - sansConso}/${kpi.length} profils avec données`}
           color={couverture >= 80 ? C.success : couverture >= 50 ? C.warning : C.danger}
         />
         <InsightCard
           icon={IconRun}
           label="Taux d'activité"
           value={`${tauxActivite}%`}
-          detail={inactifs === 0 ? 'Tous les profils ont des sessions' : `${inactifs} profil(s) sans activité enregistrée`}
+          detail={inactifs === 0 ? 'Tous les profils ont des sessions' : `${inactifs} profil(s) sans activité`}
           color={inactifs === 0 ? C.success : C.warning}
-        />
-        <InsightCard
-          icon={IconScale}
-          label="Équilibre calorique"
-          value={`${enDeficit + enExcedent}/${kpi.length}`}
-          detail={`${enDeficit} en déficit  ·  ${enExcedent} en excédent`}
-          color={C.primary}
         />
         <InsightCard
           icon={IconBmi}
@@ -212,53 +223,37 @@ export default function DashboardSection() {
           color={C.success}
         />
         <InsightCard
-          icon={IconLink}
-          label="Comptes sans profil santé"
-          value={comptesOrphans}
-          detail={comptesOrphans === 0 ? 'Tous les comptes ont un profil associé' : `${comptesOrphans} compte(s) non reliés à un profil`}
-          color={comptesOrphans === 0 ? C.success : C.danger}
-        />
-        <InsightCard
           icon={IconCalendar}
           label="Jours d'activité moyens"
           value={fmt(avgJours, 0)}
-          detail="Nombre moyen de jours actifs par profil"
+          detail="Moyenne de jours actifs par profil"
           color={C.cyan}
-        />
-        <InsightCard
-          icon={IconProtein}
-          label="Protéines moyennes"
-          value={`${fmt(avg(proteines), 0)} g`}
-          detail="Apport protéique moyen par utilisateur"
-          color={C.orange}
-        />
-        <InsightCard
-          icon={IconGrain}
-          label="Glucides / Lipides moy."
-          value={`${fmt(avg(glucides), 0)} / ${fmt(avg(lipides), 0)} g`}
-          detail="Glucides et lipides moyens par utilisateur"
-          color={C.pink}
         />
       </div>
 
-      {/* ─── GRAPHIQUES ───────────────────────────────────────── */}
+      {/* ── GRAPHIQUES ────────────────────────────────────── */}
       <div className="section-title">
         <IconScale size={16} /> Analyses graphiques
       </div>
 
-      {/* Ligne 1 : 3 colonnes */}
+      {/* Filtre genre */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
+        <span style={{ fontSize: 13, color: '#64748b', fontWeight: 600 }}>Filtrer par genre :</span>
+        {filterSelect(
+          genderFilter, setGenderFilter,
+          allGenders.map(g => <option key={g} value={g}>{g} ({kpi.filter(d => d.gender === g).length})</option>),
+          `Tous (${kpi.length})`
+        )}
+      </div>
+
+      {/* Ligne 1 : distributions + radar */}
       <div className="charts-grid-3">
         <div className="chart-card">
-          <h3>Répartition IMC</h3>
+          <h3>Répartition IMC{genderFilter !== 'all' ? ` — ${genderFilter}` : ''}</h3>
           <ResponsiveContainer width="100%" height={270}>
             <PieChart>
-              <Pie
-                data={imcData}
-                dataKey="value"
-                nameKey="name"
-                outerRadius={90}
-                label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-                labelLine={false}
+              <Pie data={imcData} dataKey="value" nameKey="name" outerRadius={85}
+                label={({ percent }) => `${(percent * 100).toFixed(0)}%`} labelLine
               >
                 {imcData.map((_, i) => <Cell key={i} fill={IMC_COLORS[i % IMC_COLORS.length]} />)}
               </Pie>
@@ -272,13 +267,8 @@ export default function DashboardSection() {
           <h3>Genre des profils</h3>
           <ResponsiveContainer width="100%" height={270}>
             <PieChart>
-              <Pie
-                data={genderData}
-                dataKey="value"
-                nameKey="name"
-                outerRadius={90}
-                innerRadius={40}
-                label
+              <Pie data={genderData} dataKey="value" nameKey="name" outerRadius={85} innerRadius={40}
+                label={({ name, value }) => `${name} (${value})`} labelLine
               >
                 {genderData.map((_, i) => <Cell key={i} fill={GENDER_COLORS[i % GENDER_COLORS.length]} />)}
               </Pie>
@@ -289,31 +279,35 @@ export default function DashboardSection() {
         </div>
 
         <div className="chart-card">
-          <h3>Profil de performance moyen</h3>
+          <h3>Performance moyenne{genderFilter !== 'all' ? ` — ${genderFilter}` : ''}</h3>
           <ResponsiveContainer width="100%" height={270}>
-            <RadarChart data={radarData}>
+            <RadarChart data={radarData} margin={{ top: 10, right: 20, bottom: 10, left: 20 }}>
               <PolarGrid stroke="#e2e8f0" />
-              <PolarAngleAxis dataKey="metric" tick={{ fontSize: 11 }} />
+              <PolarAngleAxis dataKey="metric" tick={{ fontSize: 12 }} />
               <PolarRadiusAxis angle={30} domain={[0, 100]} tick={{ fontSize: 9 }} />
-              <Radar
-                name="Moyenne normalisée"
-                dataKey="valeur"
-                stroke={C.primary}
-                fill={C.primary}
-                fillOpacity={0.25}
-              />
+              <Radar name="% normalisé" dataKey="valeur" stroke={C.primary} fill={C.primary} fillOpacity={0.25} />
               <Tooltip formatter={v => `${v}%`} />
             </RadarChart>
           </ResponsiveContainer>
         </div>
       </div>
 
-      {/* Ligne 2 : 2 colonnes */}
-      <div className="charts-grid-2" style={{ marginTop: 20 }}>
+      {/* Filtre utilisateur */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, margin: '28px 0 14px' }}>
+        <span style={{ fontSize: 13, color: '#64748b', fontWeight: 600 }}>Filtrer par utilisateur :</span>
+        {filterSelect(
+          userFilter, setUserFilter,
+          allUserIds.map(uid => <option key={uid} value={uid}>{uid}</option>),
+          `Tous les utilisateurs (${allUserIds.length})`
+        )}
+      </div>
+
+      {/* Ligne 2 : bilan + macros filtrés */}
+      <div className="charts-grid-2">
         <div className="chart-card">
-          <h3>Bilan calorique moyen — Dépenses vs Apports (kcal)</h3>
+          <h3>Bilan calorique — Dépenses vs Apports (kcal)</h3>
           <ResponsiveContainer width="100%" height={270}>
-            <BarChart data={bilanData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
+            <BarChart data={bilanFiltered} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
               <XAxis dataKey="user" tick={{ fontSize: 11 }} />
               <YAxis tick={{ fontSize: 11 }} />
@@ -328,7 +322,7 @@ export default function DashboardSection() {
         <div className="chart-card">
           <h3>Macronutriments moyens par utilisateur (g)</h3>
           <ResponsiveContainer width="100%" height={270}>
-            <BarChart data={macrosData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
+            <BarChart data={macrosFiltered} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
               <XAxis dataKey="user" tick={{ fontSize: 11 }} />
               <YAxis tick={{ fontSize: 11 }} />
@@ -337,67 +331,6 @@ export default function DashboardSection() {
               <Bar dataKey="proteines" stackId="a" fill={C.blue}    name="Protéines" />
               <Bar dataKey="glucides"  stackId="a" fill={C.warning} name="Glucides" />
               <Bar dataKey="lipides"   stackId="a" fill={C.orange}  radius={[4, 4, 0, 0]} name="Lipides" />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
-
-      {/* Ligne 3 : 4 colonnes */}
-      <div className="charts-grid-4" style={{ marginTop: 20 }}>
-        <div className="chart-card">
-          <h3>Séances par utilisateur</h3>
-          <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={seanceData} margin={{ top: 5, right: 8, left: 0, bottom: 5 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-              <XAxis dataKey="user" tick={{ fontSize: 10 }} />
-              <YAxis tick={{ fontSize: 10 }} />
-              <Tooltip />
-              <Bar dataKey="seances" fill={C.primary} radius={[4, 4, 0, 0]} name="Séances" />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-
-        <div className="chart-card">
-          <h3>Jours d&apos;activité enregistrés</h3>
-          <ResponsiveContainer width="100%" height={220}>
-            <AreaChart data={joursData} margin={{ top: 5, right: 8, left: 0, bottom: 5 }}>
-              <defs>
-                <linearGradient id="grad-jours" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%"  stopColor={C.cyan} stopOpacity={0.35} />
-                  <stop offset="95%" stopColor={C.cyan} stopOpacity={0.03} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-              <XAxis dataKey="user" tick={{ fontSize: 10 }} />
-              <YAxis tick={{ fontSize: 10 }} />
-              <Tooltip />
-              <Area type="monotone" dataKey="jours" stroke={C.cyan} fill="url(#grad-jours)" name="Jours actifs" />
-            </AreaChart>
-          </ResponsiveContainer>
-        </div>
-
-        <div className="chart-card">
-          <h3>Total des pas</h3>
-          <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={stepsData} margin={{ top: 5, right: 8, left: 0, bottom: 5 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-              <XAxis dataKey="user" tick={{ fontSize: 10 }} />
-              <YAxis tick={{ fontSize: 10 }} />
-              <Tooltip />
-              <Bar dataKey="steps" fill={C.success} radius={[4, 4, 0, 0]} name="Pas" />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-
-        <div className="chart-card">
-          <h3>Durée moy. séances (h)</h3>
-          <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={dureeData} margin={{ top: 5, right: 8, left: 0, bottom: 5 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-              <XAxis dataKey="user" tick={{ fontSize: 10 }} />
-              <YAxis tick={{ fontSize: 10 }} />
-              <Tooltip />
-              <Bar dataKey="duree" fill={C.warning} radius={[4, 4, 0, 0]} name="Durée (h)" />
             </BarChart>
           </ResponsiveContainer>
         </div>
